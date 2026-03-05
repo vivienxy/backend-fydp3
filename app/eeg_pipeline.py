@@ -1,17 +1,28 @@
 import asyncio
 import inspect
 import logging
+import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from app.config import settings
 from app.state import AppState
 
 logger = logging.getLogger(__name__)
 
+# Allow direct imports used inside eeg_backend_functions (e.g. "from connect_eeg import ...").
+EEG_FUNCTIONS_PATH = Path(__file__).resolve().parent.parent / "eeg_backend_functions"
+if str(EEG_FUNCTIONS_PATH) not in sys.path:
+    sys.path.insert(0, str(EEG_FUNCTIONS_PATH))
+
 try:
-    from user_modules.eeg import connect_eeg, create_epoch, eeg_processing, event_filter
-    from user_modules.model import ml_classifier
+    from connect_eeg import connect_eeg
+    from create_epoch import create_epoch
+    from eeg_processing import eeg_processing
+    from event_filter import event_filter
+    from ml_classifier import ml_classifier
 except ImportError:
     # TO DO: implement import from user EEG/ML modules
     def connect_eeg() -> Any:
@@ -32,22 +43,42 @@ except ImportError:
 
 async def eeg_connect_loop(state: AppState) -> None:
     while True:
-        try:
-            stream = await asyncio.to_thread(connect_eeg)
-            await state.set_eeg_stream(stream)
-            logger.info("EEG LSL connected")
+        stream = await state.get_eeg_stream()
+        if stream is not None:
             await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
+            continue
+        try:
+            connected_stream = await asyncio.to_thread(connect_eeg)
+            await state.set_eeg_stream(connected_stream)
+            logger.info("EEG LSL connected")
         except Exception:
             logger.exception("EEG connection attempt failed")
             await state.set_eeg_stream(None)
-            await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
+        await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
 
 
 def _create_epoch_wrapper(stream: Any, event_lsl_timestamp: float) -> Any:
     sig = inspect.signature(create_epoch)
-    if len(sig.parameters) == 1:
+    params = list(sig.parameters.values())
+    if len(params) == 1:
         return create_epoch(event_lsl_timestamp)
-    return create_epoch(stream, event_lsl_timestamp)
+    first_param = params[0]
+    if first_param.name == "stream":
+        return create_epoch(stream, event_lsl_timestamp)
+    return create_epoch(event_lsl_timestamp)
+
+
+def _ml_classifier_wrapper(features: np.ndarray) -> bool:
+    kwargs: dict[str, Any] = {}
+    if settings.eeg_model_path:
+        kwargs["model_path"] = settings.eeg_model_path
+    if settings.eeg_scaler_path:
+        kwargs["scaler_path"] = settings.eeg_scaler_path
+
+    prediction = ml_classifier(features, **kwargs)
+    if isinstance(prediction, (list, tuple)) and prediction:
+        return bool(prediction[0])
+    return bool(prediction)
 
 
 async def run_eeg_event_pipeline(state: AppState, event_id: str, event_lsl_timestamp: float) -> dict[str, Any]:
@@ -74,7 +105,7 @@ async def run_eeg_event_pipeline(state: AppState, event_id: str, event_lsl_times
 
         epoch = await asyncio.to_thread(_create_epoch_wrapper, stream, event_lsl_timestamp)
         features = await asyncio.to_thread(eeg_processing, epoch)
-        is_unfamiliar = await asyncio.to_thread(ml_classifier, features)
+        is_unfamiliar = await asyncio.to_thread(_ml_classifier_wrapper, features)
         result = {
             "event_id": event_id,
             "event_lsl_timestamp": event_lsl_timestamp,
