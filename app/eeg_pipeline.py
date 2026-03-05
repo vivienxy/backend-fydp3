@@ -43,22 +43,29 @@ except ImportError:
 
 async def eeg_connect_loop(state: AppState) -> None:
     while True:
-        try:
-            stream = await asyncio.to_thread(connect_eeg)
-            await state.set_eeg_stream(stream)
-            logger.info("EEG LSL connected")
+        stream = await state.get_eeg_stream()
+        if stream is not None:
             await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
+            continue
+        try:
+            connected_stream = await asyncio.to_thread(connect_eeg)
+            await state.set_eeg_stream(connected_stream)
+            logger.info("EEG LSL connected")
         except Exception:
             logger.exception("EEG connection attempt failed")
             await state.set_eeg_stream(None)
-            await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
+        await asyncio.sleep(state.settings.eeg_lsl_retry_seconds)
 
 
 def _create_epoch_wrapper(stream: Any, event_lsl_timestamp: float) -> Any:
     sig = inspect.signature(create_epoch)
-    if len(sig.parameters) == 1:
+    params = list(sig.parameters.values())
+    if len(params) == 1:
         return create_epoch(event_lsl_timestamp)
-    return create_epoch(stream, event_lsl_timestamp)
+    first_param = params[0]
+    if first_param.name == "stream":
+        return create_epoch(stream, event_lsl_timestamp)
+    return create_epoch(event_lsl_timestamp)
 
 
 def _ml_classifier_wrapper(features: np.ndarray) -> bool:

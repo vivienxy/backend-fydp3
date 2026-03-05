@@ -17,7 +17,10 @@ import numpy as np
 import pandas as pd
 import mne
 
-from connect_eeg import _get_stream
+try:
+    from .connect_eeg import _get_stream
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    from connect_eeg import _get_stream
 
 
 def _nearest_indices(ts_array: np.ndarray, targets: Sequence[float]) -> np.ndarray:
