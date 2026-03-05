@@ -5,3 +5,8 @@ pydantic-settings
 numpy
 opencv-python
 python-multipart
+mne
+pandas
+scipy
+pylsl
+joblib
