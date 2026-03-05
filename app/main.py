@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.cue_service import build_cue_decision
 from app.eeg_pipeline import eeg_connect_loop, run_eeg_event_pipeline
-from app.face_pipeline import enqueue_frame, face_recognition_loop
+from app.face_pipeline import enqueue_frame, enqueue_frame_packet, face_recognition_loop
 from app.state import AppState
 from app.storage.models import CueDBManifest, EventIn, FaceDBManifest, VideoFrameMessage
 
@@ -112,9 +112,26 @@ async def ws_video(ws: WebSocket) -> None:
     await ws.accept()
     try:
         while True:
-            payload = await ws.receive_json()
-            frame = VideoFrameMessage.model_validate(payload)
-            await enqueue_frame(state, frame.timestamp, frame.data_b64, frame.encoding)
+            message = await ws.receive()
+            message_type = message.get("type")
+            if message_type == "websocket.disconnect":
+                break
+
+            if message.get("bytes") is not None:
+                await enqueue_frame_packet(state, message["bytes"])
+                continue
+
+            if message.get("text") is not None:
+                text = message["text"]
+                if text == "ping":
+                    await ws.send_text("pong")
+                    continue
+                payload = json.loads(text)
+                frame = VideoFrameMessage.model_validate(payload)
+                await enqueue_frame(state, frame.timestamp, frame.data_b64, frame.encoding)
+                continue
+
+            raise ValueError("Unsupported websocket message type")
     except WebSocketDisconnect:
         return
     except Exception as exc:

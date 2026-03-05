@@ -84,8 +84,11 @@ This keeps inference aligned with your already-updated classifier choice while r
 }
 ```
 
-### Incoming video frame JSON over `WS /ws/video`
+### Incoming live video over `WS /ws/video` (Magic Leap 2 / Unity)
 
+The server now accepts both JSON and binary websocket frames so Unity can stream live camera data with low overhead.
+
+**Option A: JSON message**
 ```json
 {
   "timestamp": 12345.67,
@@ -93,6 +96,12 @@ This keeps inference aligned with your already-updated classifier choice while r
   "data_b64": "..."
 }
 ```
+
+**Option B: binary frame packet (recommended for ML2 Unity)**
+- Raw JPEG bytes (server timestamp applied), or
+- Framed packet: `b"TS64" + <8-byte little-endian float64 timestamp> + <jpeg bytes>`
+
+This allows Unity to send live camera frames directly without base64 expansion.
 
 ### Outgoing cue decision JSON over `WS /ws/ar`
 
@@ -146,6 +155,7 @@ This keeps inference aligned with your already-updated classifier choice while r
 - `MAX_FRAME_QUEUE=32`
 - `LOG_LEVEL=INFO`
 - `MAX_UPLOAD_BYTES=5000000`
+- `MAX_VIDEO_FRAME_BYTES=2000000`
 
 ## Run instructions
 
