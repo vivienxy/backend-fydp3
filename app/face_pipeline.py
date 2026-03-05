@@ -1,8 +1,8 @@
 import asyncio
 import base64
-import json
 import logging
-import struct
+import os
+import tempfile
 import time
 from typing import Any
 
@@ -10,7 +10,6 @@ import cv2
 import numpy as np
 
 from app.state import AppState
-from app.storage.models import VideoFrameMessage
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,7 @@ except ImportError:
 
 
 async def enqueue_frame(state: AppState, timestamp: float, data_b64: str, encoding: str) -> None:
+    """Legacy single-frame path; retained for compatibility."""
     try:
         raw = base64.b64decode(data_b64, validate=True)
     except Exception as exc:
@@ -41,30 +41,70 @@ async def enqueue_frame_bytes(state: AppState, timestamp: float, image_bytes: by
     await state.frame_queue.put((float(timestamp), image_bytes))
 
 
-async def enqueue_frame_packet(state: AppState, packet: bytes) -> None:
+def _decode_video_chunk(video_bytes: bytes, container: str, target_fps: float) -> list[tuple[float, bytes]]:
+    if len(video_bytes) == 0:
+        return []
+
+    suffix = f".{container.lower().strip('.') or 'mp4'}"
+    frames: list[tuple[float, bytes]] = []
+
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(video_bytes)
+        tmp_path = tmp.name
+
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            raise ValueError("Unable to open incoming video chunk")
+
+        src_fps = cap.get(cv2.CAP_PROP_FPS)
+        if not src_fps or src_fps <= 0:
+            src_fps = target_fps if target_fps > 0 else 10.0
+
+        stride = max(1, int(round(src_fps / max(target_fps, 0.1))))
+        index = 0
+
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if index % stride == 0:
+                ok_jpg, enc = cv2.imencode('.jpg', frame)
+                if ok_jpg:
+                    ts = index / float(src_fps)
+                    frames.append((ts, enc.tobytes()))
+            index += 1
+
+        cap.release()
+        return frames
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+async def ingest_video_chunk(
+    state: AppState,
+    chunk_bytes: bytes,
+    *,
+    timestamp: float | None = None,
+    container: str = "mp4",
+) -> int:
     """
-    Magic Leap Unity live-stream packet formats supported:
-    1) Raw JPEG bytes -> server timestamp is used.
-    2) Framed bytes: b"TS64" + <little-endian float64 timestamp> + <jpeg bytes>.
-    3) UTF-8 JSON bytes matching VideoFrameMessage schema.
+    Decode a video stream chunk (mp4/webm/etc) and enqueue sampled JPEG frames.
+    This is the preferred path for ML2 live camera stream transport.
     """
-    if not packet:
-        raise ValueError("Empty frame packet")
+    if len(chunk_bytes) > state.settings.max_video_chunk_bytes:
+        raise ValueError("Video chunk payload too large")
 
-    if packet.startswith(b"TS64"):
-        if len(packet) < 12:
-            raise ValueError("TS64 packet too short")
-        timestamp = struct.unpack("<d", packet[4:12])[0]
-        await enqueue_frame_bytes(state, timestamp, packet[12:], encoding="jpeg")
-        return
+    base_ts = float(timestamp) if timestamp is not None else time.time()
+    target_fps = float(state.settings.video_sample_fps)
 
-    if packet[:1] == b"{" and packet[-1:] == b"}":
-        payload = json.loads(packet.decode("utf-8"))
-        frame = VideoFrameMessage.model_validate(payload)
-        await enqueue_frame(state, frame.timestamp, frame.data_b64, frame.encoding)
-        return
-
-    await enqueue_frame_bytes(state, time.time(), packet, encoding="jpeg")
+    decoded = await asyncio.to_thread(_decode_video_chunk, chunk_bytes, container, target_fps)
+    for rel_ts, jpeg in decoded:
+        await enqueue_frame_bytes(state, base_ts + rel_ts, jpeg, encoding="jpeg")
+    return len(decoded)
 
 
 def _decode_jpeg(image_bytes: bytes) -> np.ndarray:
@@ -84,7 +124,7 @@ async def face_recognition_loop(state: AppState) -> None:
                 face_db_view = {k: v.model_dump(mode="json") for k, v in state.face_db.items()}
             face_id = await asyncio.to_thread(dnn_face_recognition, frame, face_db_view)
             await state.set_current_face(face_id)
-            logger.info("Processed frame", extra={"frame_ts": timestamp, "face_id": face_id})
+            logger.info("Processed stream frame", extra={"frame_ts": timestamp, "face_id": face_id})
         except Exception:
             logger.exception("Face recognition loop error")
         finally:

@@ -84,24 +84,27 @@ This keeps inference aligned with your already-updated classifier choice while r
 }
 ```
 
-### Incoming live video over `WS /ws/video` (Magic Leap 2 / Unity)
+### Incoming live video stream over `WS /ws/video` (Magic Leap 2 / Unity)
 
-The server now accepts both JSON and binary websocket frames so Unity can stream live camera data with low overhead.
+The backend expects a **video stream transport**, not single still-image frame packets.
 
-**Option A: JSON message**
-```json
-{
-  "timestamp": 12345.67,
-  "encoding": "jpeg",
-  "data_b64": "..."
-}
-```
+Supported input modes:
 
-**Option B: binary frame packet (recommended for ML2 Unity)**
-- Raw JPEG bytes (server timestamp applied), or
-- Framed packet: `b"TS64" + <8-byte little-endian float64 timestamp> + <jpeg bytes>`
+- **Preferred**: websocket binary messages where each message is an encoded video chunk (for example MP4/WebM segment) from the live ML2 Camera 2.1 stream.
+  - Backend decodes the chunk and samples frames internally for face recognition.
+- **Optional JSON mode** (`type="video_chunk"`):
+  ```json
+  {
+    "type": "video_chunk",
+    "timestamp": 12345.67,
+    "container": "mp4",
+    "data_b64": "..."
+  }
+  ```
+- Legacy single-frame JSON is still accepted for compatibility, but stream chunk mode is recommended for live ML2 capture.
 
-This allows Unity to send live camera frames directly without base64 expansion.
+For each chunk, server replies with:
+- `{"type":"video_chunk_ack","decoded_frames":<n>}`
 
 ### Outgoing cue decision JSON over `WS /ws/ar`
 
@@ -156,6 +159,9 @@ This allows Unity to send live camera frames directly without base64 expansion.
 - `LOG_LEVEL=INFO`
 - `MAX_UPLOAD_BYTES=5000000`
 - `MAX_VIDEO_FRAME_BYTES=2000000`
+- `MAX_VIDEO_CHUNK_BYTES=20000000`
+- `VIDEO_SAMPLE_FPS=5.0`
+- `VIDEO_STREAM_CONTAINER=mp4`
 
 ## Run instructions
 

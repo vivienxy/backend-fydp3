@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     max_upload_bytes: int = Field(default=5_000_000, alias="MAX_UPLOAD_BYTES")
     max_video_frame_bytes: int = Field(default=2_000_000, alias="MAX_VIDEO_FRAME_BYTES")
+    max_video_chunk_bytes: int = Field(default=20_000_000, alias="MAX_VIDEO_CHUNK_BYTES")
+    video_sample_fps: float = Field(default=5.0, alias="VIDEO_SAMPLE_FPS")
+    video_stream_container: str = Field(default="mp4", alias="VIDEO_STREAM_CONTAINER")
 
 
 settings = Settings()

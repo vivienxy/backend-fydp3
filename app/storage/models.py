@@ -29,6 +29,12 @@ class VideoFrameMessage(BaseModel):
     data_b64: str
 
 
+class VideoChunkMessage(BaseModel):
+    timestamp: float
+    container: str = Field(default="mp4")
+    data_b64: str
+
+
 class CueDecisionMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
