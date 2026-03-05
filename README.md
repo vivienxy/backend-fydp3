@@ -44,14 +44,33 @@ This repository implements only the Python backend server block from the archite
 
 ## Hook points to your existing implementations
 
-This backend expects these existing functions and imports:
+This backend now includes EEG and classifier implementations in:
 
-- `from user_modules.eeg import connect_eeg, event_filter, create_epoch, eeg_processing`
-- `from user_modules.model import ml_classifier`
+- `user_modules/eeg.py` (`connect_eeg`, `event_filter`, `create_epoch`, `eeg_processing`)
+- `user_modules/model.py` (`ml_classifier`)
+
+It still expects user-provided modules for:
+
 - `from user_modules.face import dnn_face_recognition`
 - `from user_modules.cue import cue_preparation`
 
-If those imports are missing, the backend still starts but raises `NotImplementedError` when those functions are called.
+If those face/cue imports are missing, the backend still starts but raises `NotImplementedError` when called.
+
+
+## Pretrained EEG model usage
+
+The EEG familiarity classifier is loaded at runtime from a pretrained artifact (no retraining in backend):
+
+- Set `EEG_MODEL_PATH` to a `.joblib` file, or place the file at one of these defaults:
+  - `data/models/eeg_familiarity_model.joblib`
+  - `data/eeg_familiarity_model.joblib`
+  - `eeg_familiarity_model.joblib`
+- The loader accepts either:
+  - a raw sklearn estimator saved directly, or
+  - a dict bundle such as `{"model": estimator, "scaler": scaler, "threshold": 0.5}`
+- If your artifact includes `predict_proba`, inference uses class-1 probability with threshold `EEG_MODEL_THRESHOLD` (default `0.5`).
+
+This keeps inference aligned with your already-updated classifier choice while reusing notebook-style feature extraction.
 
 ## Message contracts
 
@@ -65,15 +84,27 @@ If those imports are missing, the backend still starts but raises `NotImplemente
 }
 ```
 
-### Incoming video frame JSON over `WS /ws/video`
+### Incoming live video stream over `WS /ws/video` (Magic Leap 2 / Unity)
 
-```json
-{
-  "timestamp": 12345.67,
-  "encoding": "jpeg",
-  "data_b64": "..."
-}
-```
+The backend expects a **video stream transport**, not single still-image frame packets.
+
+Supported input modes:
+
+- **Preferred**: websocket binary messages where each message is an encoded video chunk (for example MP4/WebM segment) from the live ML2 Camera 2.1 stream.
+  - Backend decodes the chunk and samples frames internally for face recognition.
+- **Optional JSON mode** (`type="video_chunk"`):
+  ```json
+  {
+    "type": "video_chunk",
+    "timestamp": 12345.67,
+    "container": "mp4",
+    "data_b64": "..."
+  }
+  ```
+- Legacy single-frame JSON is still accepted for compatibility, but stream chunk mode is recommended for live ML2 capture.
+
+For each chunk, server replies with:
+- `{"type":"video_chunk_ack","decoded_frames":<n>}`
 
 ### Outgoing cue decision JSON over `WS /ws/ar`
 
@@ -127,6 +158,10 @@ If those imports are missing, the backend still starts but raises `NotImplemente
 - `MAX_FRAME_QUEUE=32`
 - `LOG_LEVEL=INFO`
 - `MAX_UPLOAD_BYTES=5000000`
+- `MAX_VIDEO_FRAME_BYTES=2000000`
+- `MAX_VIDEO_CHUNK_BYTES=20000000`
+- `VIDEO_SAMPLE_FPS=5.0`
+- `VIDEO_STREAM_CONTAINER=mp4`
 
 ## Run instructions
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -10,9 +11,9 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.cue_service import build_cue_decision
 from app.eeg_pipeline import eeg_connect_loop, run_eeg_event_pipeline
-from app.face_pipeline import enqueue_frame, face_recognition_loop
+from app.face_pipeline import enqueue_frame, face_recognition_loop, ingest_video_chunk
 from app.state import AppState
-from app.storage.models import CueDBManifest, EventIn, FaceDBManifest, VideoFrameMessage
+from app.storage.models import CueDBManifest, EventIn, FaceDBManifest, VideoChunkMessage, VideoFrameMessage
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -112,7 +113,45 @@ async def ws_video(ws: WebSocket) -> None:
     await ws.accept()
     try:
         while True:
-            payload = await ws.receive_json()
+            message = await ws.receive()
+            message_type = message.get("type")
+            if message_type == "websocket.disconnect":
+                break
+
+            binary = message.get("bytes")
+            if binary is not None:
+                count = await ingest_video_chunk(
+                    state,
+                    binary,
+                    timestamp=time.time(),
+                    container=settings.video_stream_container,
+                )
+                await ws.send_json({"type": "video_chunk_ack", "decoded_frames": count})
+                continue
+
+            text = message.get("text")
+            if text is None:
+                raise ValueError("Unsupported websocket message type")
+            if text == "ping":
+                await ws.send_text("pong")
+                continue
+
+            payload = json.loads(text)
+            mode = payload.get("type")
+            if mode == "video_chunk":
+                chunk = VideoChunkMessage.model_validate(payload)
+                import base64
+
+                chunk_bytes = base64.b64decode(chunk.data_b64, validate=True)
+                count = await ingest_video_chunk(
+                    state,
+                    chunk_bytes,
+                    timestamp=chunk.timestamp,
+                    container=chunk.container,
+                )
+                await ws.send_json({"type": "video_chunk_ack", "decoded_frames": count})
+                continue
+
             frame = VideoFrameMessage.model_validate(payload)
             await enqueue_frame(state, frame.timestamp, frame.data_b64, frame.encoding)
     except WebSocketDisconnect:
