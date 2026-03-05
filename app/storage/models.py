@@ -23,10 +23,10 @@ class EventIn(BaseModel):
     optional_context: dict[str, Any] = Field(default_factory=dict)
 
 
-class VideoFrameMessage(BaseModel):
-    timestamp: float
-    encoding: str
-    data_b64: str
+class VideoStreamMessage(BaseModel):
+    source: str = Field(min_length=1)
+    stream_url: str = Field(min_length=1)
+    is_live: bool = True
 
 
 class CueDecisionMessage(BaseModel):
