@@ -6,7 +6,7 @@ This repository implements only the Python backend server block from the archite
 
 - Connects to EEG LSL on startup with automatic retry.
 - Accepts AR event timestamps via REST and runs EEG pipeline only when events arrive.
-- Accepts video frames over WebSocket and runs face recognition continuously in a background worker.
+- Accepts a live ML2 Camera 2.1 video stream descriptor over WebSocket and runs face recognition continuously from that stream in a background worker.
 - Combines EEG result + latest face identity to run cue preparation and emit real-time cue decisions over WebSocket.
 - Supports face database uploads (image + metadata) and cue database uploads (JSON).
 - Serves face/cue manifests for AR startup sync and provides file download endpoint for stored images.
@@ -18,11 +18,11 @@ This repository implements only the Python backend server block from the archite
   - REST routes for events, database upload/download, health checks.
   - WebSocket endpoints:
     - `/ws/ar` for cue decision output and optional DB sync push on connect.
-    - `/ws/video` for incoming JPEG frame messages from AR.
+    - `/ws/video` for incoming live ML2 Camera 2.1 stream descriptors from AR.
 - `app/config.py`
   - Environment-based application settings using Pydantic settings.
 - `app/state.py`
-  - Shared mutable state with async locks and frame queue.
+  - Shared mutable state with async locks and active video-stream configuration.
   - In-memory face DB, cue DB, EEG stream handle, and latest recognized face ID.
 - `app/eeg_pipeline.py`
   - EEG connection retry loop.
@@ -30,12 +30,13 @@ This repository implements only the Python backend server block from the archite
     - `event_filter -> create_epoch -> eeg_processing -> ml_classifier`.
   - Handles create_epoch signature compatibility when user function accepts either `(event_ts)` or `(stream, event_ts)`.
 - `app/face_pipeline.py`
-  - Validates/decodes incoming base64 JPEG frames.
+  - Validates ML2 Camera 2.1 as the only supported source.
+  - Pulls and processes live video frames from a direct stream URL using OpenCV.
   - Background face recognition loop using the provided DNN function.
 - `app/cue_service.py`
   - Calls the provided cue preparation function and shapes final cue decision payload.
 - `app/storage/models.py`
-  - Pydantic message/data schemas for events, frames, cue decisions, and manifests.
+  - Pydantic message/data schemas for events, live stream descriptors, cue decisions, and manifests.
 - `app/storage/db.py`
   - Local disk persistence for face and cue manifests.
   - File writing for face images and secure file-path resolution for downloads.
@@ -65,13 +66,13 @@ If those imports are missing, the backend still starts but raises `NotImplemente
 }
 ```
 
-### Incoming video frame JSON over `WS /ws/video`
+### Incoming live video stream JSON over `WS /ws/video`
 
 ```json
 {
-  "timestamp": 12345.67,
-  "encoding": "jpeg",
-  "data_b64": "..."
+  "source": "ml2_camera_2_1",
+  "stream_url": "<live-stream-url>",
+  "is_live": true
 }
 ```
 
@@ -147,11 +148,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
    - Connect to `WS /ws/ar` to receive `db_sync` and real-time cue decisions.
    - Fetch `GET /db/face` and `GET /db/cue` for latest manifests.
    - Send events to `POST /events`.
-   - Stream JPEG frames to `WS /ws/video`.
+   - Send the ML2 Camera 2.1 live stream descriptor to `WS /ws/video`; backend continuously pulls live frames from `stream_url`.
 
 ## Notes on robustness
 
 - Event requests return a structured error if EEG stream is not connected.
-- Invalid frame encoding/base64 is rejected.
+- Invalid/non-live stream descriptors are rejected.
 - Database manifests are loaded from disk on startup; missing files initialize as empty databases.
 - Face recognition failures do not crash server loops.

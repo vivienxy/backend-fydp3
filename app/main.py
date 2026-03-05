@@ -10,9 +10,9 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.cue_service import build_cue_decision
 from app.eeg_pipeline import eeg_connect_loop, run_eeg_event_pipeline
-from app.face_pipeline import enqueue_frame, face_recognition_loop
+from app.face_pipeline import face_recognition_loop, update_video_stream
 from app.state import AppState
-from app.storage.models import CueDBManifest, EventIn, FaceDBManifest, VideoFrameMessage
+from app.storage.models import CueDBManifest, EventIn, FaceDBManifest, VideoStreamMessage
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
@@ -113,8 +113,9 @@ async def ws_video(ws: WebSocket) -> None:
     try:
         while True:
             payload = await ws.receive_json()
-            frame = VideoFrameMessage.model_validate(payload)
-            await enqueue_frame(state, frame.timestamp, frame.data_b64, frame.encoding)
+            stream = VideoStreamMessage.model_validate(payload)
+            await update_video_stream(state, stream.source, stream.stream_url, stream.is_live)
+            await ws.send_json({"type": "video_stream_ack", "payload": {"source": stream.source, "is_live": stream.is_live}})
     except WebSocketDisconnect:
         return
     except Exception as exc:

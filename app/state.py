@@ -22,7 +22,9 @@ class AppState:
         self.eeg_stream: Any | None = None
         self.current_face_id: str | None = None
         self.latest_eeg_result: dict[str, Any] = {}
-        self.frame_queue: asyncio.Queue[tuple[float, bytes]] = asyncio.Queue(maxsize=settings.max_frame_queue)
+        self.video_source_lock = asyncio.Lock()
+        self.video_stream_url: str | None = None
+        self.video_is_live: bool = False
 
     async def set_current_face(self, face_id: str | None) -> None:
         self.current_face_id = face_id
@@ -34,3 +36,12 @@ class AppState:
     async def get_eeg_stream(self) -> Any | None:
         async with self.eeg_stream_lock:
             return self.eeg_stream
+
+    async def set_video_source(self, stream_url: str, is_live: bool) -> None:
+        async with self.video_source_lock:
+            self.video_stream_url = stream_url
+            self.video_is_live = is_live
+
+    async def get_video_source(self) -> tuple[str | None, bool]:
+        async with self.video_source_lock:
+            return self.video_stream_url, self.video_is_live
