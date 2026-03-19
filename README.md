@@ -121,13 +121,15 @@ If those imports are missing, the backend still starts but raises `NotImplemente
 
 - `EEG_LSL_RETRY_SECONDS=3`
 - `DATA_DIR=./data`
-- `FACE_IMAGES_DIR=./data/faces`
-- `CUE_IMAGES_DIR=./data/cues`
 - `VIDEO_MODE=ws`
 - `VIDEO_PULL_URL=`
 - `MAX_FRAME_QUEUE=32`
 - `LOG_LEVEL=INFO`
 - `MAX_UPLOAD_BYTES=5000000`
+- `PEOPLE_JSON_PATH=../WebServer/database/PeopleDatabase/people.json`
+- `IMAGES_DIR=../WebServer/database/PeopleDatabase/images`
+- `AUDITORY_CUE_DIR=../WebServer/database/PeopleDatabase/auditory cues`
+- `HEADSHOTS_DIR=../WebServer/database/PeopleDatabase/headshots`
 
 ## Run instructions
 
