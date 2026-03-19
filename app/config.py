@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,8 +9,6 @@ class Settings(BaseSettings):
 
     eeg_lsl_retry_seconds: int = Field(default=3, alias="EEG_LSL_RETRY_SECONDS")
     data_dir: str = Field(default="./data", alias="DATA_DIR")
-    face_images_dir: str = Field(default="./data/faces", alias="FACE_IMAGES_DIR")
-    cue_images_dir: str = Field(default="./data/cues", alias="CUE_IMAGES_DIR")
     video_mode: str = Field(default="ws", alias="VIDEO_MODE")
     video_pull_url: str | None = Field(default=None, alias="VIDEO_PULL_URL")
     max_frame_queue: int = Field(default=32, alias="MAX_FRAME_QUEUE")
@@ -16,6 +16,30 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=5_000_000, alias="MAX_UPLOAD_BYTES")
     eeg_model_path: str | None = Field(default=None, alias="EEG_MODEL_PATH")
     eeg_scaler_path: str | None = Field(default=None, alias="EEG_SCALER_PATH")
+
+    project_root: Path = Path(__file__).resolve().parents[2]
+    webserver_dir: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer", alias="WEBSERVER_DIR")
+    people_database_dir: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "database" / "PeopleDatabase",
+        alias="PEOPLE_DATABASE_DIR",
+    )
+    people_json_path: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "database" / "PeopleDatabase" / "people.json",
+        alias="PEOPLE_JSON_PATH",
+    )
+    setting_dir: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "setting", alias="SETTING_DIR")
+    images_dir: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "database" / "PeopleDatabase" / "images",
+        alias="IMAGES_DIR",
+    )
+    auditory_cue_dir: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "database" / "PeopleDatabase" / "auditory cues",
+        alias="AUDITORY_CUE_DIR",
+    )
+    headshots_dir: Path = Field(
+        default_factory=lambda: Path(__file__).resolve().parents[2] / "WebServer" / "database" / "PeopleDatabase" / "headshots",
+        alias="HEADSHOTS_DIR",
+    )
 
 
 settings = Settings()
